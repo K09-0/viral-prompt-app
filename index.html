@@ -30,22 +30,28 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState } = React;
 
         function App() {
-            const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
+            // Безопасное получение ключа (защита от краша, если браузер блокирует localStorage)
+            const getInitialKey = () => {
+                try { return localStorage.getItem('gemini_api_key') || ''; } 
+                catch (e) { return ''; }
+            };
+
+            const [apiKey, setApiKey] = useState(getInitialKey());
             const [ideas, setIdeas] = useState([]);
             const [loadingIdeas, setLoadingIdeas] = useState(false);
             const [loadingPrompt, setLoadingPrompt] = useState(false);
             const [generatedPrompt, setGeneratedPrompt] = useState('');
-            const [activeTab, setActiveTab] = useState('ideas'); // 'ideas' or 'prompt'
+            const [activeTab, setActiveTab] = useState('ideas'); 
             const [error, setError] = useState('');
 
-            // Сохраняем ключ в браузере, чтобы не вводить каждый раз
+            // Безопасное сохранение ключа
             const handleApiKeyChange = (e) => {
                 const val = e.target.value;
                 setApiKey(val);
-                localStorage.setItem('gemini_api_key', val);
+                try { localStorage.setItem('gemini_api_key', val); } catch(e) {}
             };
 
             // Функция вызова Google Gemini API
@@ -56,8 +62,8 @@
                 }
                 setError('');
                 
-                ```javascript
-const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+                // ИСПОЛЬЗУЕМ СТАБИЛЬНУЮ ВЕРСИЮ МОДЕЛИ gemini-1.5-flash
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
                 
                 const payload = {
                     contents: [{ parts: [{ text: userPrompt }] }],
@@ -156,6 +162,14 @@ const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-
                 alert('Промпт скопирован в буфер обмена!');
             };
 
+            // Безопасный рендер маркдауна
+            const renderMarkdown = () => {
+                if (window.marked && generatedPrompt) {
+                    return { __html: marked.parse(generatedPrompt) };
+                }
+                return { __html: generatedPrompt };
+            };
+
             return (
                 <div className="min-h-screen p-4 md:p-8 max-w-6xl mx-auto">
                     <header className="mb-8 text-center md:text-left flex flex-col md:flex-row justify-between items-center gap-4">
@@ -163,7 +177,7 @@ const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-
                             <h1 className="text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-indigo-500 mb-2">
                                 Viral App Architect
                             </h1>
-                            <p className="text-slate-400 text-sm md:text-base">Автоматический генератор сумасшедших идей и промптов для Web3/TG</p>
+                            <p className="text-slate-400 text-sm md:text-base">Автоматический генератор идей и промптов для Web3/TG</p>
                         </div>
                         
                         <div className="flex flex-col gap-2 w-full md:w-auto">
@@ -174,7 +188,7 @@ const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-
                                 onChange={handleApiKeyChange}
                                 className="px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm focus:outline-none focus:border-sky-500 w-full md:w-64"
                             />
-                            <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-xs text-sky-400 hover:underline text-right">
+                            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-xs text-sky-400 hover:underline text-right">
                                 Получить бесплатный ключ
                             </a>
                         </div>
@@ -268,7 +282,7 @@ const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-
                             </button>
                             <div 
                                 className="markdown-body text-slate-200 pr-24"
-                                dangerouslySetInnerHTML={{ __html: marked.parse(generatedPrompt) }}
+                                dangerouslySetInnerHTML={renderMarkdown()}
                             ></div>
                         </div>
                     )}
