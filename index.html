@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Viral App Prompt Generator</title>
+    <!-- Подключаем Tailwind CSS для красивого дизайна -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Подключаем React -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Подключаем Babel для компиляции JSX в браузере -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Подключаем Marked для красивого отображения Markdown промптов -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .markdown-body h1 { font-size: 1.5rem; font-weight: bold; margin-top: 1rem; margin-bottom: 0.5rem; color: #38bdf8; }
+        .markdown-body h2 { font-size: 1.25rem; font-weight: bold; margin-top: 1rem; margin-bottom: 0.5rem; color: #7dd3fc; }
+        .markdown-body p { margin-bottom: 0.75rem; line-height: 1.6; }
+        .markdown-body ul { list-style-type: disc; margin-left: 1.5rem; margin-bottom: 0.75rem; }
+        .markdown-body strong { color: #bae6fd; }
+        .loader { border-top-color: #38bdf8; -webkit-animation: spinner 1.5s linear infinite; animation: spinner 1.5s linear infinite; }
+        @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function App() {
+            const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
+            const [ideas, setIdeas] = useState([]);
+            const [loadingIdeas, setLoadingIdeas] = useState(false);
+            const [loadingPrompt, setLoadingPrompt] = useState(false);
+            const [generatedPrompt, setGeneratedPrompt] = useState('');
+            const [activeTab, setActiveTab] = useState('ideas'); // 'ideas' or 'prompt'
+            const [error, setError] = useState('');
+
+            // Сохраняем ключ в браузере, чтобы не вводить каждый раз
+            const handleApiKeyChange = (e) => {
+                const val = e.target.value;
+                setApiKey(val);
+                localStorage.setItem('gemini_api_key', val);
+            };
+
+            // Функция вызова Google Gemini API
+            const callGeminiAPI = async (systemPrompt, userPrompt, isJson = false) => {
+                if (!apiKey) {
+                    setError('Пожалуйста, введите API ключ Google Gemini.');
+                    return null;
+                }
+                setError('');
+                
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                
+                const payload = {
+                    contents: [{ parts: [{ text: userPrompt }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                };
+
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const errData = await response.json();
+                        throw new Error(errData.error?.message || 'Ошибка API');
+                    }
+
+                    const data = await response.json();
+                    let textResult = data.candidates[0].content.parts[0].text;
+
+                    if (isJson) {
+                        // Очистка от маркдауна, если нейросеть обернула JSON
+                        textResult = textResult.replace(/```json\n?|```/g, '').trim();
+                        return JSON.parse(textResult);
+                    }
+
+                    return textResult;
+                } catch (err) {
+                    setError(`Ошибка: ${err.message}. Проверьте правильность API ключа.`);
+                    return null;
+                }
+            };
+
+            // Генерация идей
+            const analyzeAndGenerateIdeas = async () => {
+                setLoadingIdeas(true);
+                setIdeas([]);
+                setGeneratedPrompt('');
+                setActiveTab('ideas');
+
+                const sysPrompt = `Ты - гениальный визионер и продакт-менеджер в сфере Web3, Crypto, Telegram Apps, Farcaster и Pi Network. Твоя цель - придумывать залипательные (hyper-casual/social) приложения с мощной виральностью и хитрой монетизацией.`;
+                const userPrompt = `Проанализируй текущие тренды (тапалки, social-fi, meme-fi) и придумай 3 абсолютно НОВЫЕ, сумасшедшие и уникальные концепции мини-приложений. 
+                Верни ответ СТРОГО в формате JSON массива:
+                [
+                  {
+                    "title": "Убойное название",
+                    "platform": "Telegram / Farcaster / Pi Network",
+                    "concept": "Суть игры/приложения (2-3 предложения)",
+                    "virality": "Главная вирусная механика (почему люди будут звать друзей)",
+                    "monetization": "Скрытая или явная монетизация (как мы заработаем)"
+                  }
+                ]
+                Отвечай только JSON массивом, без лишних слов.`;
+
+                const result = await callGeminiAPI(sysPrompt, userPrompt, true);
+                if (result && Array.isArray(result)) {
+                    setIdeas(result);
+                }
+                setLoadingIdeas(false);
+            };
+
+            // Генерация профессионального промпта по идеи
+            const generateProfessionalPrompt = async (idea) => {
+                setLoadingPrompt(true);
+                setActiveTab('prompt');
+                setGeneratedPrompt('');
+
+                const sysPrompt = `Ты - Senior AI Architect и Lead Prompt Engineer. Твоя задача - создавать идеальные, всеобъемлющие промпты для других ИИ (Cursor, Claude, ChatGPT), чтобы они могли написать готовый код приложения с нуля в один клик. Промпт должен быть на русском языке.`;
+                const userPrompt = `Создай ультимативный системный промпт для ИИ-программиста, чтобы он разработал следующее приложение:
+                Название: ${idea.title}
+                Платформа: ${idea.platform}
+                Концепция: ${idea.concept}
+                Виральность: ${idea.virality}
+                Монетизация: ${idea.monetization}
+                
+                Структура промпта, которую ты должен сгенерировать:
+                1. Роль: (Например: Ты Senior Frontend разработчик...)
+                2. Задача: (Создать однофайловое приложение/игру...)
+                3. Технический стек: (Опиши использование React, Tailwind, Canvas/HTML5 и т.д. без сложного бэкенда, все в браузере или с заглушками).
+                4. Архитектура и UI/UX: (Темная тема, анимации, залипательный интерфейс).
+                5. Пошаговая реализация логики: (От экрана загрузки до геймплея и экрана шеринга/монетизации).
+                6. Требования к качеству кода: (Все в одном файле, красивая верстка, рабочие кнопки).
+                
+                Сделай промпт максимально подробным, как ТЗ для сеньора. Используй форматирование Markdown.`;
+
+                const result = await callGeminiAPI(sysPrompt, userPrompt, false);
+                if (result) {
+                    setGeneratedPrompt(result);
+                }
+                setLoadingPrompt(false);
+            };
+
+            const copyToClipboard = () => {
+                navigator.clipboard.writeText(generatedPrompt);
+                alert('Промпт скопирован в буфер обмена!');
+            };
+
+            return (
+                <div className="min-h-screen p-4 md:p-8 max-w-6xl mx-auto">
+                    <header className="mb-8 text-center md:text-left flex flex-col md:flex-row justify-between items-center gap-4">
+                        <div>
+                            <h1 className="text-3xl md:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-indigo-500 mb-2">
+                                Viral App Architect
+                            </h1>
+                            <p className="text-slate-400 text-sm md:text-base">Автоматический генератор сумасшедших идей и промптов для Web3/TG</p>
+                        </div>
+                        
+                        <div className="flex flex-col gap-2 w-full md:w-auto">
+                            <input 
+                                type="password" 
+                                placeholder="Вставьте ключ Gemini API..." 
+                                value={apiKey}
+                                onChange={handleApiKeyChange}
+                                className="px-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm focus:outline-none focus:border-sky-500 w-full md:w-64"
+                            />
+                            <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-xs text-sky-400 hover:underline text-right">
+                                Получить бесплатный ключ
+                            </a>
+                        </div>
+                    </header>
+
+                    {error && (
+                        <div className="bg-red-900/50 border border-red-500 text-red-200 px-4 py-3 rounded-lg mb-6 text-sm">
+                            {error}
+                        </div>
+                    )}
+
+                    <div className="flex gap-4 mb-6">
+                        <button 
+                            onClick={analyzeAndGenerateIdeas}
+                            disabled={loadingIdeas}
+                            className="flex-1 md:flex-none bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-indigo-500/30 transition-all disabled:opacity-50 flex justify-center items-center gap-2"
+                        >
+                            {loadingIdeas ? (
+                                <div className="loader ease-linear rounded-full border-2 border-t-2 border-white h-5 w-5"></div>
+                            ) : (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                            )}
+                            Сгенерировать Идеи
+                        </button>
+                    </div>
+
+                    {/* Вкладки */}
+                    {(ideas.length > 0 || generatedPrompt) && (
+                        <div className="flex border-b border-slate-700 mb-6">
+                            <button 
+                                className={`px-4 py-2 font-medium ${activeTab === 'ideas' ? 'text-sky-400 border-b-2 border-sky-400' : 'text-slate-400 hover:text-slate-200'}`}
+                                onClick={() => setActiveTab('ideas')}
+                            >
+                                💡 Идеи ({ideas.length})
+                            </button>
+                            {generatedPrompt && (
+                                <button 
+                                    className={`px-4 py-2 font-medium ${activeTab === 'prompt' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-slate-400 hover:text-slate-200'}`}
+                                    onClick={() => setActiveTab('prompt')}
+                                >
+                                    ⚙️ Готовый Промпт
+                                </button>
+                            )}
+                            {loadingPrompt && (
+                                <span className="px-4 py-2 text-slate-500 flex items-center gap-2">
+                                    <div className="loader ease-linear rounded-full border-2 border-t-2 border-slate-500 h-4 w-4"></div>
+                                    Пишем промпт...
+                                </span>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Контент вкладок */}
+                    {activeTab === 'ideas' && ideas.length > 0 && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            {ideas.map((idea, index) => (
+                                <div key={index} className="glass-panel rounded-2xl p-6 flex flex-col justify-between hover:border-sky-500/50 transition-colors">
+                                    <div>
+                                        <div className="text-xs font-bold text-indigo-400 mb-2 uppercase tracking-wider">{idea.platform}</div>
+                                        <h3 className="text-xl font-bold text-white mb-3">{idea.title}</h3>
+                                        <p className="text-slate-300 text-sm mb-4">{idea.concept}</p>
+                                        
+                                        <div className="mb-4">
+                                            <div className="text-xs text-slate-500 mb-1">🔥 Виральность:</div>
+                                            <div className="text-sm text-sky-200">{idea.virality}</div>
+                                        </div>
+                                        <div className="mb-6">
+                                            <div className="text-xs text-slate-500 mb-1">💰 Монетизация:</div>
+                                            <div className="text-sm text-green-300">{idea.monetization}</div>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => generateProfessionalPrompt(idea)}
+                                        className="w-full bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-600 hover:border-sky-500 font-semibold py-2 px-4 rounded-lg transition-colors"
+                                    >
+                                        Создать Промпт
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {activeTab === 'prompt' && generatedPrompt && (
+                        <div className="glass-panel rounded-2xl p-6 md:p-8 relative">
+                            <button 
+                                onClick={copyToClipboard}
+                                className="absolute top-4 right-4 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-lg"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                                Копировать
+                            </button>
+                            <div 
+                                className="markdown-body text-slate-200 pr-24"
+                                dangerouslySetInnerHTML={{ __html: marked.parse(generatedPrompt) }}
+                            ></div>
+                        </div>
+                    )}
+
+                    {!loadingIdeas && ideas.length === 0 && !error && (
+                        <div className="text-center text-slate-500 mt-20">
+                            <svg className="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                            <p>Введите API ключ и нажмите "Сгенерировать Идеи",<br/>чтобы начать магию.</p>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
